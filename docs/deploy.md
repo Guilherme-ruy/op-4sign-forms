@@ -48,6 +48,10 @@ FRONTEND_URL=https://documentos.suaempresa.com.br
 # openssl rand -hex 32
 JWT_SECRET=cole-aqui-a-chave-gerada
 
+# Cifra os segredos de SMTP salvos em /admin/email (obrigatório para essa tela funcionar):
+# openssl rand -hex 32
+SETTINGS_ENCRYPTION_KEY=cole-aqui-outra-chave-gerada
+
 # D4Sign de PRODUÇÃO (troque a base URL do sandbox para produção)
 D4SIGN_BASE_URL=https://secure.d4sign.com.br/api/v1
 D4SIGN_TOKEN_API=seu-token-de-producao
