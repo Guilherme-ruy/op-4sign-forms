@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import {
   Send, Save, Loader2, Lock, ShieldCheck,
   AlertCircle, X, Trash2, Palette, Eye, Server,
-  Link2, KeyRound, UserPlus, type LucideIcon,
+  Link2, KeyRound, UserPlus, Info, Code2, type LucideIcon,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,24 @@ const EMAIL_TYPE_TOKENS: Record<EmailType, string[]> = {
   reset: ["{{recipientName}}", "{{portalName}}"],
   invite: ["{{recipientName}}", "{{portalName}}"],
 };
+
+const TOKEN_DICTIONARY: { token: string; description: string; availableIn: string }[] = [
+  {
+    token: "{{templateName}}",
+    description: "Nome do modelo de documento que o cliente vai preencher.",
+    availableIn: "Link de Preenchimento",
+  },
+  {
+    token: "{{recipientName}}",
+    description: "Nome da pessoa que vai receber o e-mail.",
+    availableIn: "Redefinição de Senha, Convite",
+  },
+  {
+    token: "{{portalName}}",
+    description: 'O nome definido no campo "Nome exibido no e-mail", logo acima dos modelos.',
+    availableIn: "Todos os modelos",
+  },
+];
 
 /* ─── Modal de envio de teste ─── */
 function TestModal({
@@ -229,6 +248,102 @@ function ContentResetModal({
   );
 }
 
+/* ─── Modal "Como Funciona" ─── */
+function HelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+      >
+        <div className="flex items-center justify-between px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+              <Info className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Como funcionam os E-mails?</h2>
+              <p className="text-sm text-slate-500 font-medium">Configuração de envio e personalização do conteúdo.</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-xl text-slate-400 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-8 space-y-8 overflow-y-auto">
+          {/* Resumo das duas seções */}
+          <div className="space-y-5">
+            <div className="flex gap-5">
+              <div className="w-12 h-12 shrink-0 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-600 mt-1">
+                <Server className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 mb-1">SMTP</h3>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  Define <strong>como</strong> o portal envia os e-mails: servidor, porta, usuário e senha da sua caixa de e-mail.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-5">
+              <div className="w-12 h-12 shrink-0 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mt-1">
+                <Palette className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 mb-1">Design e Conteúdo</h3>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  Define <strong>o que</strong> é enviado: cor de destaque, nome do portal, e o assunto/título/mensagem/botão
+                  de cada um dos 3 modelos — Link de Preenchimento, Redefinição de Senha e Convite. Cada modelo é independente
+                  dos outros dois.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Dicionário de variáveis */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Code2 className="w-4 h-4 text-slate-400" />
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Dicionário de variáveis</h3>
+            </div>
+            <p className="text-sm text-slate-600 leading-relaxed mb-4">
+              No campo <strong>Mensagem</strong> (e no Assunto), você pode usar as variáveis abaixo entre chaves duplas —
+              elas são trocadas automaticamente pelo valor real na hora do envio.
+            </p>
+            <div className="space-y-2.5">
+              {TOKEN_DICTIONARY.map((item) => (
+                <div key={item.token} className="flex items-start gap-3 bg-slate-50 rounded-xl px-4 py-3">
+                  <code className="text-xs font-bold text-primary bg-primary/10 px-2 py-1.5 rounded-lg whitespace-nowrap flex-shrink-0 mt-0.5">
+                    {item.token}
+                  </code>
+                  <div>
+                    <p className="text-sm text-slate-700">{item.description}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Disponível em: {item.availableIn}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-8 py-5 border-t border-slate-100 bg-slate-50 flex justify-end flex-shrink-0">
+          <button onClick={onClose} className="px-6 py-2.5 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition-all">
+            Entendi
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 /* ════════════════════════════════════════════ */
 export default function EmailSettingsPage() {
   const { user } = useAuth();
@@ -244,6 +359,7 @@ export default function EmailSettingsPage() {
   const [smtpPassword, setSmtpPassword] = useState("");
   const [showTest, setShowTest] = useState(false);
   const [showReset, setShowReset] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [error, setError] = useState("");
 
   const isSuper = user?.role === "SUPER_ADMIN";
@@ -410,12 +526,23 @@ export default function EmailSettingsPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">Configurações de E-mail</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Defina como o portal envia e-mails e personalize o conteúdo enviado.
-        </p>
-      </div>
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Configurações de E-mail</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Defina como o portal envia e-mails e personalize o conteúdo enviado.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowHelpModal(true)}
+          className="bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 border-2 border-slate-200 hover:border-slate-300 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all self-start md:self-center whitespace-nowrap"
+          title="Entenda como funcionam os e-mails"
+        >
+          <Info className="w-5 h-5" />
+          Como Funciona
+        </button>
+      </header>
 
       <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-6">
         <button
@@ -762,6 +889,9 @@ export default function EmailSettingsPage() {
           onClose={() => setShowContentReset(false)}
         />
       )}
+      <AnimatePresence>
+        {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
+      </AnimatePresence>
     </div>
   );
 }
