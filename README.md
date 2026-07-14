@@ -25,8 +25,6 @@ O sistema permite que administradores criem **modelos de documento** (PDF Overla
 | Frontend | Next.js 16 · Tailwind CSS · TanStack Query |
 | Assinatura digital | D4Sign API |
 | E-mail transacional | SMTP |
-| Backup | rclone → Google Drive |
-| Reverse proxy | Nginx |
 | Infraestrutura | Docker Compose |
 
 ---
@@ -37,8 +35,6 @@ O sistema permite que administradores criem **modelos de documento** (PDF Overla
 /
 ├── backend/          # API REST (NestJS + Prisma)
 ├── frontend/         # Portal admin e formulário público (Next.js)
-├── nginx/            # Configuração do reverse proxy
-├── rclone/           # Configuração do backup automático
 ├── docs/             # Documentação técnica detalhada
 ├── data/             # Volume persistente (banco, anexos, previews) — não versionado
 ├── docker-compose.yml
@@ -106,7 +102,7 @@ npm run dev
 docker compose up -d --build
 ```
 
-Todos os serviços sobem automaticamente: Nginx (porta 80), backend, frontend e Gotenberg.
+Todos os serviços sobem automaticamente: backend, frontend e Gotenberg. Configure um reverse proxy (Nginx, Caddy, Traefik etc.) na frente das portas 3001 (API) e 3030 (frontend) conforme sua infraestrutura.
 
 ---
 
@@ -127,7 +123,6 @@ A pasta `/docs` contém documentação detalhada de cada módulo:
 - `links-de-envio.md` — geração de links e lotes
 - `formulario-publico.md` — experiência do cliente
 - `deploy.md` — guia de deploy em VPS Ubuntu
-- `backup.md` — estratégia de backup com rclone
 - `d4sign-api/` — referência da integração D4Sign
 
 ---

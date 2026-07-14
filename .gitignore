@@ -58,6 +58,5 @@ data/
 
 # Docker — credenciais e configurações sensíveis
 .env.docker
-rclone/rclone.conf
 # Claude Code local settings
 .claude/

@@ -1,6 +1,6 @@
 # Guia de Deploy
 
-**Última atualização:** 19/05/2026
+**Última atualização:** 14/07/2026
 
 ---
 
@@ -9,7 +9,7 @@
 - Ubuntu 22.04 ou superior
 - Docker Engine instalado
 - Docker Compose plugin instalado (`docker compose`, não `docker-compose`)
-- Porta 80 liberada no firewall
+- Portas 3001 (API) e 3030 (frontend) liberadas no firewall, ou as portas do seu reverse proxy caso use um na frente
 
 ### Instalar Docker (se ainda não tiver)
 
@@ -62,24 +62,7 @@ BACKUP_DIR=/data/backups
 
 > **Atenção:** O `docker compose` lê o arquivo `.env` da raiz automaticamente — ele serve tanto para substituição de variáveis no `docker-compose.yml` quanto para injetar as variáveis no container do backend. Não renomeie para outro nome.
 
-### 3. Configurar o nginx do sistema
-
-O portal usa o **nginx instalado na VPS** como porteiro central (não um container nginx). Isso permite hospedar múltiplos sistemas no mesmo servidor sem conflito de portas.
-
-```bash
-# Copiar a config do portal para o nginx do sistema
-cp nginx/documentos.suaempresa.com.br.conf /etc/nginx/sites-available/documentos.suaempresa.com.br
-
-# Ativar o site
-ln -s /etc/nginx/sites-available/documentos.suaempresa.com.br /etc/nginx/sites-enabled/
-
-# Testar e recarregar
-nginx -t && systemctl reload nginx
-```
-
-> Se o nginx do sistema não estiver instalado: `apt install -y nginx`
-
-### 4. Buildar e subir os containers
+### 3. Buildar e subir os containers
 
 ```bash
 docker compose up -d --build
@@ -110,26 +93,19 @@ Isso cria o usuário `admin@suaempresa.com.br` com a senha `DEFINIR_SENHA_AQUI` 
 
 > **Troque a senha imediatamente após o primeiro login.**
 
-### 5. Configurar o backup automático
+### 5. Testar
 
-```bash
-chmod +x scripts/setup-backup.sh
-./scripts/setup-backup.sh
-```
-
-O script instala o rclone, autentica com o Google Drive, localiza os volumes Docker e configura o crontab automaticamente. Veja `docs/backup.md` para mais detalhes.
-
-### 6. Testar
-
-Acesse `http://SEU_IP` no browser. O sistema deve estar funcionando.
+Acesse `http://SEU_IP:3030` no browser. O sistema deve estar funcionando.
 
 ```bash
 # Acompanhar logs em tempo real
 docker compose logs -f
 
 # Testar se o backend responde
-curl http://localhost/api/health
+curl http://localhost:3001/health
 ```
+
+> Sem reverse proxy configurado, backend e frontend ficam expostos diretamente nas portas 3001 e 3030. Para produção, recomenda-se colocar um reverse proxy (Nginx, Caddy, Traefik etc.) na frente para centralizar em uma única porta/domínio e cuidar do HTTPS.
 
 ---
 
@@ -163,27 +139,9 @@ docker compose up -d --build backend
 
 ## Ativar HTTPS (quando tiver domínio)
 
-### 1. Certifique-se que o DNS já aponta para o IP da VPS
+O projeto não inclui reverse proxy próprio — backend e frontend ficam expostos diretamente nas portas 3001 e 3030. Para HTTPS e domínio próprio, coloque um reverse proxy de sua escolha (Nginx, Caddy, Traefik etc.) na frente dessas portas na VPS e emita o certificado por ali (ex.: Certbot, ou o provisionamento automático do Caddy/Traefik).
 
-```bash
-nslookup documentos.suaempresa.com.br
-```
-
-### 2. Instale o Certbot com plugin nginx
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-```
-
-### 3. Gere o certificado (o Certbot edita o nginx automaticamente)
-
-```bash
-certbot --nginx -d documentos.suaempresa.com.br
-```
-
-O Certbot detecta a config do site, gera o certificado e já ativa o HTTPS e o redirecionamento HTTP→HTTPS automaticamente.
-
-### 4. Atualize o .env e rebuilde o frontend
+Depois de configurar o proxy e o certificado, atualize o `.env` e rebuilde o frontend:
 
 ```env
 NEXT_PUBLIC_API_URL=https://documentos.suaempresa.com.br/api
@@ -192,19 +150,6 @@ FRONTEND_URL=https://documentos.suaempresa.com.br
 
 ```bash
 docker compose up -d --build frontend
-```
-
-### 5. Renovação automática do certificado
-
-O Certbot já instala um timer do systemd que renova automaticamente. Verifique:
-
-```bash
-systemctl status certbot.timer
-```
-
-Se preferir via crontab manual:
-```cron
-0 3 * * * certbot renew --quiet && systemctl reload nginx
 ```
 
 ---
@@ -261,12 +206,6 @@ docker compose restart backend
 docker compose restart frontend
 ```
 
-### Recarregar o nginx do sistema (após mudar config)
-
-```bash
-nginx -t && systemctl reload nginx
-```
-
 ### Acessar o terminal de um container
 
 ```bash
@@ -287,29 +226,11 @@ docker system df -v
 ### Forçar backup manual do banco
 
 ```bash
-curl -X POST http://localhost/api/backup/run \
+curl -X POST http://localhost:3001/backup/run \
   -H "Authorization: Bearer SEU_TOKEN_JWT"
 ```
 
-### Verificar logs do backup rclone
-
-```bash
-tail -f /var/log/rclone-backup.log
-```
-
-### Sincronizar backup agora (manualmente)
-
-```bash
-# Dados principais (banco + anexos dos clientes)
-rclone sync /var/lib/docker/volumes/portal-documentos_app_data/_data \
-  gdrive:Backups-Portal/app_data \
-  --exclude "generated/**" --exclude "previews/**" --exclude "pending-attachments/**" \
-  --progress
-
-# Templates (DOCX e PDF base dos modelos)
-rclone sync /var/lib/docker/volumes/portal-documentos_templates_data/_data \
-  gdrive:Backups-Portal/templates --progress
-```
+O snapshot é salvo em `/data/backups/` (volume `portal-documentos_app_data`), com limpeza automática de arquivos com mais de 7 dias. Não há sincronização remota automática — para levar os backups para fora da VPS, copie o arquivo periodicamente para onde preferir.
 
 ---
 
@@ -342,15 +263,6 @@ Causas comuns:
 - `DATABASE_URL` incorreto no `.env`
 - Migration falhou (banco corrompido ou incompatível)
 
-### Erro 502 Bad Gateway no nginx
-
-O nginx subiu antes do backend estar pronto. Aguarde 15–20 segundos e tente novamente. Se persistir:
-
-```bash
-docker compose logs backend
-docker compose restart nginx
-```
-
 ### Frontend não consegue chamar a API
 
 Verifique se `NEXT_PUBLIC_API_URL` no `.env` está correto **antes do build** — a URL é gravada no bundle em tempo de build. Se precisar corrigir:
@@ -361,24 +273,4 @@ docker compose up -d --build frontend
 
 ### Upload de template retorna erro
 
-Verifique o limite de upload no nginx (`client_max_body_size 50M` em `nginx/nginx.conf`). Para templates muito grandes, aumente o valor e reinicie:
-
-```bash
-docker compose restart nginx
-```
-
-### Backup não aparece no Google Drive
-
-```bash
-# Verificar se o rclone está configurado
-rclone listremotes
-
-# Testar conexão com o Drive
-rclone lsd gdrive:
-
-# Ver log de erros do backup
-tail -50 /var/log/rclone-backup.log
-
-# Se o rclone não estiver instalado, rode o setup novamente
-./scripts/setup-backup.sh
-```
+O backend limita uploads a 20MB (documentos/anexos) ou 50MB (arquivo base do modelo), definido em `backend/src/templates/templates.controller.ts` e `backend/src/links/links.controller.ts` (`FileInterceptor(..., { limits: { fileSize: ... } })`). Para aumentar, ajuste o valor nesses arquivos e rebuilde o backend. Se houver um reverse proxy na frente, verifique também o limite de tamanho de body configurado nele.
