@@ -236,3 +236,30 @@ model EmailSettings {
   updatedAt    DateTime @updatedAt
   updatedById  String?
 }
+
+// Personalização de conteúdo/design dos e-mails transacionais, editável em
+// /admin/email. Linha única (id fixo "singleton"); campos nulos usam o texto
+// padrão embutido em EmailContentService.
+model EmailContentSettings {
+  id                String   @id @default("singleton")
+  accentColor       String?
+  portalDisplayName String?
+
+  linkSubject      String?
+  linkTitle        String?
+  linkBody         String?
+  linkButtonText   String?
+
+  resetSubject     String?
+  resetTitle       String?
+  resetBody        String?
+  resetButtonText  String?
+
+  inviteSubject    String?
+  inviteTitle      String?
+  inviteBody       String?
+  inviteButtonText String?
+
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { EmailSettingsService, EffectiveEmailConfig } from '../email-settings/email-settings.service';
+import { EmailContentService, BOLD_TOKEN_KEYS } from '../email-content/email-content.service';
+import { escapeHtml, renderButton, renderEmailShell, renderParagraphs, substituteTokensPlain } from './email-template.util';
 
 interface SendLinkEmailOptions {
   to: { name: string; address: string };
@@ -26,7 +28,10 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly frontendUrl = process.env.FRONTEND_URL || 'https://documentos.suaempresa.com.br';
 
-  constructor(private readonly settings: EmailSettingsService) {}
+  constructor(
+    private readonly settings: EmailSettingsService,
+    private readonly contentService: EmailContentService,
+  ) {}
 
   async sendLinkEmail(opts: SendLinkEmailOptions): Promise<boolean> {
     if (!opts.to.address) {
@@ -35,71 +40,27 @@ export class EmailService {
     }
 
     const expireStr = opts.expiresAt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const content = await this.contentService.getEffective();
+    const { accentColor, portalDisplayName } = content;
+    const tokens = { templateName: opts.templateName, portalName: portalDisplayName };
     const logoUrl = `${this.frontendUrl}/logo_horizontal.png`;
 
-    const htmlbody = `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background-color:#ffffff;font-family:Arial, sans-serif;-webkit-font-smoothing:antialiased;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:40px 10px;">
-    <tr>
-      <td align="center">
-        <!-- Main Card -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background-color:#ffffff;border:1px solid #e0e0e0;border-top:4px solid #0A0A0A;">
-
-          <!-- Header (Minimalist) -->
-          <tr>
-            <td style="padding:40px;border-bottom:1px solid #f0f0f0;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td width="150">
-                    <img src="${logoUrl}" alt="Portal" width="150" style="display:block;outline:none;border:none;">
-                  </td>
-                  <td align="right" style="font-size:14px;font-weight:bold;color:#0A0A0A;text-transform:uppercase;letter-spacing:1px;vertical-align:middle;">
-                    Portal de Documentos
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:40px;">
+    const bodyHtml = `
               <p style="margin:0 0 20px;font-size:16px;color:#000000;">Prezado(a),</p>
 
-              <h2 style="margin:0 0 20px;font-size:20px;color:#0A0A0A;font-weight:bold;line-height:1.4;">
-                Solicitação de Preenchimento de Documento
+              <h2 style="margin:0 0 20px;font-size:20px;color:${accentColor};font-weight:bold;line-height:1.4;">
+                ${escapeHtml(content.link.title)}
               </h2>
 
-              <p style="margin:0 0 20px;font-size:15px;color:#000000;line-height:1.6;">
-                Informamos que o documento <strong>${opts.templateName}</strong> está disponível para preenchimento.
-              </p>
+              ${renderParagraphs(content.link.body, tokens, BOLD_TOKEN_KEYS)}
 
-              <p style="margin:0 0 30px;font-size:15px;color:#000000;line-height:1.6;">
-                Solicitamos que acesse o portal através do link seguro abaixo para completar o envio das informações necessárias para a formalização do processo.
-              </p>
-
-              <!-- Formal CTA Button -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin:40px 0;">
-                <tr>
-                  <td align="center">
-                    <a href="${opts.linkUrl}" style="display:inline-block;background-color:#0A0A0A;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;padding:15px 35px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;">
-                      Acessar Documento →
-                    </a>
-                  </td>
-                </tr>
-              </table>
+              ${renderButton(opts.linkUrl, content.link.buttonText, accentColor)}
 
               <!-- Details Table -->
               <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:30px;border:1px solid #f0f0f0;">
                 <tr style="background-color:#fafafa;">
                   <td style="padding:12px 15px;font-size:13px;color:#636363;font-weight:bold;width:120px;border-bottom:1px solid #f0f0f0;">PROCESSO</td>
-                  <td style="padding:12px 15px;font-size:13px;color:#000000;border-bottom:1px solid #f0f0f0;">${opts.templateName}</td>
+                  <td style="padding:12px 15px;font-size:13px;color:#000000;border-bottom:1px solid #f0f0f0;">${escapeHtml(opts.templateName)}</td>
                 </tr>
                 <tr>
                   <td style="padding:12px 15px;font-size:13px;color:#636363;font-weight:bold;border-bottom:1px solid #f0f0f0;">VALIDADE</td>
@@ -110,33 +71,15 @@ export class EmailService {
               <!-- Safety Link -->
               <p style="margin:0;font-size:12px;color:#636363;line-height:1.6;">
                 Caso não consiga clicar no botão, utilize o endereço abaixo em seu navegador:<br>
-                <a href="${opts.linkUrl}" style="color:#0A0A0A;text-decoration:underline;">${opts.linkUrl}</a>
-              </p>
-            </td>
-          </tr>
+                <a href="${opts.linkUrl}" style="color:${accentColor};text-decoration:underline;">${opts.linkUrl}</a>
+              </p>`;
 
-          <!-- Footer -->
-          <tr>
-            <td style="padding:30px 40px;background-color:#f9f9f9;border-top:2px solid #0A0A0A;text-align:center;">
-              <p style="margin:0 0 10px;font-size:11px;color:#636363;line-height:1.5;">
-                Este e-mail foi gerado automaticamente por um sistema de transmissão eletrônica.<br>
-                As informações contidas nesta mensagem são para uso exclusivo do destinatário.
-              </p>
-              <p style="margin:0;font-size:11px;color:#0A0A0A;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">
-                Portal de Documentos &copy; ${new Date().getFullYear()}
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+    const htmlbody = renderEmailShell({ accentColor, portalName: portalDisplayName, logoUrl, bodyHtml });
+    const subject = substituteTokensPlain(content.link.subject, tokens);
 
     return this.dispatch({
       to: opts.to,
-      subject: `Documento para preenchimento: ${opts.templateName}`,
+      subject,
       htmlbody,
     });
   }
@@ -148,39 +91,16 @@ export class EmailService {
     }
 
     const expireStr = opts.expiresAt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const content = await this.contentService.getEffective();
+    const { accentColor, portalDisplayName } = content;
+    const tokens = { recipientName: opts.to.name, portalName: portalDisplayName };
     const logoUrl = `${this.frontendUrl}/logo_horizontal.png`;
 
-    const htmlbody = `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 10px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border:1px solid #e0e0e0;border-top:4px solid #0A0A0A;">
-        <tr>
-          <td style="padding:40px;border-bottom:1px solid #f0f0f0;">
-            <table width="100%" cellpadding="0" cellspacing="0"><tr>
-              <td width="150"><img src="${logoUrl}" alt="Portal" width="150" style="display:block;border:none;"></td>
-              <td align="right" style="font-size:14px;font-weight:bold;color:#0A0A0A;text-transform:uppercase;letter-spacing:1px;vertical-align:middle;">Portal de Documentos</td>
-            </tr></table>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 20px;font-size:16px;color:#000;">Prezado(a) <strong>${opts.to.name}</strong>,</p>
-            <h2 style="margin:0 0 20px;font-size:20px;color:#0A0A0A;font-weight:bold;">Redefinição de Senha</h2>
-            <p style="margin:0 0 20px;font-size:15px;color:#000;line-height:1.6;">
-              Recebemos uma solicitação para redefinir a senha da sua conta no <strong>Portal de Documentos</strong>.<br>
-              Clique no botão abaixo para criar uma nova senha. Este link é válido por <strong>2 horas</strong>.
-            </p>
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin:40px 0;">
-              <tr><td align="center">
-                <a href="${opts.resetUrl}" style="display:inline-block;background-color:#0A0A0A;color:#fff;text-decoration:none;font-size:14px;font-weight:bold;padding:15px 35px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;">
-                  Redefinir Senha →
-                </a>
-              </td></tr>
-            </table>
+    const bodyHtml = `
+            <p style="margin:0 0 20px;font-size:16px;color:#000;">Prezado(a) <strong>${escapeHtml(opts.to.name)}</strong>,</p>
+            <h2 style="margin:0 0 20px;font-size:20px;color:${accentColor};font-weight:bold;">${escapeHtml(content.reset.title)}</h2>
+            ${renderParagraphs(content.reset.body, tokens, BOLD_TOKEN_KEYS)}
+            ${renderButton(opts.resetUrl, content.reset.buttonText, accentColor)}
             <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:30px;border:1px solid #f0f0f0;">
               <tr style="background:#fafafa;">
                 <td style="padding:12px 15px;font-size:13px;color:#636363;font-weight:bold;width:120px;border-bottom:1px solid #f0f0f0;">VALIDADE</td>
@@ -192,27 +112,13 @@ export class EmailService {
             </p>
             <p style="margin:0;font-size:12px;color:#636363;line-height:1.6;">
               Caso não consiga clicar no botão, copie o link abaixo no navegador:<br>
-              <a href="${opts.resetUrl}" style="color:#0A0A0A;">${opts.resetUrl}</a>
-            </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:30px 40px;background:#f9f9f9;border-top:2px solid #0A0A0A;text-align:center;">
-            <p style="margin:0 0 10px;font-size:11px;color:#636363;line-height:1.5;">
-              Este e-mail foi gerado automaticamente. Não responda esta mensagem.
-            </p>
-            <p style="margin:0;font-size:11px;color:#0A0A0A;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">
-              Portal de Documentos &copy; ${new Date().getFullYear()}
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+              <a href="${opts.resetUrl}" style="color:${accentColor};">${opts.resetUrl}</a>
+            </p>`;
 
-    return this.dispatch({ to: opts.to, subject: 'Redefinição de senha', htmlbody });
+    const htmlbody = renderEmailShell({ accentColor, portalName: portalDisplayName, logoUrl, bodyHtml });
+    const subject = substituteTokensPlain(content.reset.subject, tokens);
+
+    return this.dispatch({ to: opts.to, subject, htmlbody });
   }
 
   async sendInviteEmail(opts: SendInviteEmailOptions): Promise<boolean> {
@@ -222,39 +128,16 @@ export class EmailService {
     }
 
     const expireStr = opts.expiresAt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const content = await this.contentService.getEffective();
+    const { accentColor, portalDisplayName } = content;
+    const tokens = { recipientName: opts.to.name, portalName: portalDisplayName };
     const logoUrl = `${this.frontendUrl}/logo_horizontal.png`;
 
-    const htmlbody = `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 10px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border:1px solid #e0e0e0;border-top:4px solid #0A0A0A;">
-        <tr>
-          <td style="padding:40px;border-bottom:1px solid #f0f0f0;">
-            <table width="100%" cellpadding="0" cellspacing="0"><tr>
-              <td width="150"><img src="${logoUrl}" alt="Portal" width="150" style="display:block;border:none;"></td>
-              <td align="right" style="font-size:14px;font-weight:bold;color:#0A0A0A;text-transform:uppercase;letter-spacing:1px;vertical-align:middle;">Portal de Documentos</td>
-            </tr></table>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 20px;font-size:16px;color:#000;">Prezado(a) <strong>${opts.to.name}</strong>,</p>
-            <h2 style="margin:0 0 20px;font-size:20px;color:#0A0A0A;font-weight:bold;">Convite para o Portal de Documentos</h2>
-            <p style="margin:0 0 20px;font-size:15px;color:#000;line-height:1.6;">
-              Você foi convidado(a) para acessar o <strong>Portal de Documentos</strong>.<br>
-              Clique no botão abaixo para criar sua conta e começar a utilizar o sistema.
-            </p>
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin:40px 0;">
-              <tr><td align="center">
-                <a href="${opts.inviteUrl}" style="display:inline-block;background-color:#0A0A0A;color:#fff;text-decoration:none;font-size:14px;font-weight:bold;padding:15px 35px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;">
-                  Criar Minha Conta →
-                </a>
-              </td></tr>
-            </table>
+    const bodyHtml = `
+            <p style="margin:0 0 20px;font-size:16px;color:#000;">Prezado(a) <strong>${escapeHtml(opts.to.name)}</strong>,</p>
+            <h2 style="margin:0 0 20px;font-size:20px;color:${accentColor};font-weight:bold;">${escapeHtml(content.invite.title)}</h2>
+            ${renderParagraphs(content.invite.body, tokens, BOLD_TOKEN_KEYS)}
+            ${renderButton(opts.inviteUrl, content.invite.buttonText, accentColor)}
             <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:30px;border:1px solid #f0f0f0;">
               <tr style="background:#fafafa;">
                 <td style="padding:12px 15px;font-size:13px;color:#636363;font-weight:bold;width:120px;border-bottom:1px solid #f0f0f0;">VALIDADE</td>
@@ -266,80 +149,40 @@ export class EmailService {
             </p>
             <p style="margin:0;font-size:12px;color:#636363;line-height:1.6;">
               Caso não consiga clicar no botão, copie o link abaixo no navegador:<br>
-              <a href="${opts.inviteUrl}" style="color:#0A0A0A;">${opts.inviteUrl}</a>
-            </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:30px 40px;background:#f9f9f9;border-top:2px solid #0A0A0A;text-align:center;">
-            <p style="margin:0 0 10px;font-size:11px;color:#636363;line-height:1.5;">
-              Este e-mail foi gerado automaticamente. Não responda esta mensagem.
-            </p>
-            <p style="margin:0;font-size:11px;color:#0A0A0A;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">
-              Portal de Documentos &copy; ${new Date().getFullYear()}
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+              <a href="${opts.inviteUrl}" style="color:${accentColor};">${opts.inviteUrl}</a>
+            </p>`;
+
+    const htmlbody = renderEmailShell({ accentColor, portalName: portalDisplayName, logoUrl, bodyHtml });
+    const subject = substituteTokensPlain(content.invite.subject, tokens);
 
     return this.dispatch({
       to: opts.to,
-      subject: 'Convite para acesso ao Portal de Documentos',
+      subject,
       htmlbody,
     });
   }
 
   /** Envia um e-mail de teste com a configuração ativa (usado pela tela /admin/email). */
   async sendTestEmail(to: { name?: string; address: string }): Promise<boolean> {
+    const content = await this.contentService.getEffective();
+    const { accentColor, portalDisplayName } = content;
     const logoUrl = `${this.frontendUrl}/logo_horizontal.png`;
-    const htmlbody = `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 10px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border:1px solid #e0e0e0;border-top:4px solid #0A0A0A;">
-        <tr>
-          <td style="padding:40px;border-bottom:1px solid #f0f0f0;">
-            <table width="100%" cellpadding="0" cellspacing="0"><tr>
-              <td width="150"><img src="${logoUrl}" alt="Portal" width="150" style="display:block;border:none;"></td>
-              <td align="right" style="font-size:14px;font-weight:bold;color:#0A0A0A;text-transform:uppercase;letter-spacing:1px;vertical-align:middle;">Portal de Documentos</td>
-            </tr></table>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:40px;">
-            <h2 style="margin:0 0 20px;font-size:20px;color:#0A0A0A;font-weight:bold;">Configuração de e-mail funcionando ✓</h2>
+
+    const bodyHtml = `
+            <h2 style="margin:0 0 20px;font-size:20px;color:${accentColor};font-weight:bold;">Configuração de e-mail funcionando ✓</h2>
             <p style="margin:0 0 20px;font-size:15px;color:#000;line-height:1.6;">
-              Este é um e-mail de teste do <strong>Portal de Documentos</strong>. Se você recebeu esta mensagem,
+              Este é um e-mail de teste do <strong>${escapeHtml(portalDisplayName)}</strong>. Se você recebeu esta mensagem,
               o envio está configurado corretamente.
             </p>
             <p style="margin:0;font-size:13px;color:#636363;line-height:1.6;">
               Enviado em ${new Date().toLocaleString('pt-BR')}.
-            </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:30px 40px;background:#f9f9f9;border-top:2px solid #0A0A0A;text-align:center;">
-            <p style="margin:0;font-size:11px;color:#0A0A0A;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">
-              Portal de Documentos &copy; ${new Date().getFullYear()}
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+            </p>`;
+
+    const htmlbody = renderEmailShell({ accentColor, portalName: portalDisplayName, logoUrl, bodyHtml });
 
     return this.dispatch({
       to: { name: to.name || to.address, address: to.address },
-      subject: 'Teste de configuração de e-mail — Portal de Documentos',
+      subject: `Teste de configuração de e-mail — ${portalDisplayName}`,
       htmlbody,
     });
   }
