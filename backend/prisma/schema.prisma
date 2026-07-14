@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String               @id @default(uuid())
+  email          String               @unique
+  name           String?
+  password       String
+  role           String               @default("ADMIN") // SUPER_ADMIN, ADMIN, OPERATOR
+  canViewBalance Boolean              @default(false) // pode ver o saldo D4Sign no dashboard
+  deletedAt      DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  templateAccess UserTemplateAccess[]
+  createdLinks   PublicLink[]
+  departments    UserDepartment[]
+  authTokens     AuthToken[]
+}
+
+model AuthToken {
+  id          String    @id @default(uuid())
+  token       String    @unique
+  type        String    // "RESET" | "INVITE"
+  email       String
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inviteName  String?
+  inviteRole  String?
+  inviteDepts String?   // JSON array de departmentIds
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Department {
+  id        String             @id @default(uuid())
+  name      String             @unique
+  safeUuid  String? // UUID do cofre D4Sign vinculado (obrigatório na API; nullable no DB p/ registros legados)
+  safeName  String? // Nome do cofre D4Sign (apenas para exibição)
+  templates DocumentTemplate[]
+  users     UserDepartment[]
+  deletedAt DateTime?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+}
+
+model UserDepartment {
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([userId, departmentId])
+}
+
+model UserTemplateAccess {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templateId String
+  template   DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+
+  @@unique([userId, templateId])
+}
+
+model DocumentTemplate {
+  id                String               @id @default(uuid())
+  name              String
+  description       String?
+  d4signTemplateId  String?
+  localTemplatePath String?
+  basePdfPath       String?
+  mode              String               @default("template") // "template" | "overlay"
+  documentType      String
+  departmentId      String?
+  department        Department?          @relation(fields: [departmentId], references: [id])
+  deletedAt         DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  links             PublicLink[]
+  batches           LinkBatch[]
+  formFields        TemplateField[]
+  attachmentSlots   TemplateAttachment[]
+  userAccess        UserTemplateAccess[]
+  recipients        TemplateRecipient[]
+}
+
+model TemplateRecipient {
+  id                    String           @id @default(uuid())
+  templateId            String
+  template              DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  order                 Int
+  label                 String
+  color                 String           @default("#3B82F6")
+  canSeePreviousAnswers Boolean          @default(false)
+  createdAt             DateTime         @default(now())
+
+  @@unique([templateId, order])
+}
+
+model TemplateAttachment {
+  id              String               @id @default(uuid())
+  templateId      String
+  template        DocumentTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  label           String
+  required        Boolean              @default(true)
+  order           Int                  @default(0)
+  recipientOrder  Int?
+  visibleToOrders String?
+  deletedAt       DateTime?
+  createdAt       DateTime             @default(now())
+  submissions     SubmissionAttachment[]
+}
+
+model TemplateField {
+  id             String           @id @default(uuid())
+  templateId     String
+  template       DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  variableName   String
+  label          String
+  fieldType      String           @default("text")
+  required       Boolean          @default(true)
+  placeholder    String?
+  options        String?
+  order          Int              @default(0)
+  recipientOrder Int?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model LinkBatch {
+  id          String           @id @default(uuid())
+  name        String
+  templateId  String
+  template    DocumentTemplate @relation(fields: [templateId], references: [id])
+  createdAt   DateTime         @default(now())
+  links       PublicLink[]
+}
+
+model PublicLink {
+  id                String             @id @default(uuid())
+  token             String             @unique
+  templateId        String
+  template          DocumentTemplate   @relation(fields: [templateId], references: [id])
+  batchId           String?
+  batch             LinkBatch?         @relation(fields: [batchId], references: [id])
+  createdById       String?
+  createdBy         User?              @relation(fields: [createdById], references: [id])
+  clientName        String?
+  clientEmail       String?
+  additionalSigners String?
+  internalSigners   String?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  accessCount       Int                @default(0)
+  emailSentAt       DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  submissions       Submission[]
+  recipientSessions RecipientSession[]
+}
+
+model RecipientSession {
+  id             String     @id @default(uuid())
+  linkId         String
+  link           PublicLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  recipientOrder Int
+  email          String?
+  name           String?
+  token          String     @unique
+  formData       String?
+  status         String     @default("pending") // pending | in_progress | completed
+  emailSentAt    DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime   @default(now())
+}
+
+model Submission {
+  id             String                 @id @default(uuid())
+  linkId         String?
+  link           PublicLink?            @relation(fields: [linkId], references: [id])
+  formData       String
+  documentUUID   String?
+  status         String                 @default("pending")
+  generatedPath  String?
+  generatedURL   String?
+  dimensionsJson String?
+  lastError      String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  webhooks       WebhookEvent[]
+  attachments    SubmissionAttachment[]
+}
+
+model SubmissionAttachment {
+  id                   String             @id @default(uuid())
+  submissionId         String
+  submission           Submission         @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  templateAttachmentId String
+  templateAttachment   TemplateAttachment @relation(fields: [templateAttachmentId], references: [id])
+  filename             String
+  originalName         String
+  mimeType             String
+  createdAt            DateTime           @default(now())
+}
+
+model WebhookEvent {
+  id           String     @id @default(uuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id])
+  eventType    String
+  payload      String
+  receivedAt   DateTime   @default(now())
+}
+
+// Configuração de envio de e-mail (SMTP) editável pela interface (/admin/email).
+// Linha única (id fixo "singleton"). O segredo (smtpPassword) é cifrado na
+// aplicação (AES-256-GCM) antes de persistir — ver common/crypto.util.ts.
+model EmailSettings {
+  id           String   @id @default("singleton")
+  fromName     String?
+  fromEmail    String?
+  smtpHost     String?
+  smtpPort     Int?
+  smtpSecure   Boolean  @default(true)
+  smtpUser     String?
+  smtpPassword String? // CIFRADO
+  updatedAt    DateTime @updatedAt
+  updatedById  String?
+}
